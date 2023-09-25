@@ -7796,9 +7796,9 @@ int nghttp2_session_resume_data(nghttp2_session *session, int32_t stream_id) {
   int rv;
   nghttp2_stream *stream;
   stream = nghttp2_session_get_stream(session, stream_id);
-  if (stream == NULL) std::cout << "nghttp2: no stream " << stream_id << std::endl;
+  if (stream == NULL) printf("nghttp2: no stream %d\n", stream_id);
   bool deferred = nghttp2_stream_check_deferred_item(stream);
-  if (!deferred) std::cout << "nghttp2: no deferred item " << stream_id << std::endl;
+  if (!deferred) printf("nghttp2: no deferred item %d\n", stream_id);
   if (stream == NULL || !deferred) {
     return NGHTTP2_ERR_INVALID_ARGUMENT;
   }
