@@ -7795,7 +7795,7 @@ int nghttp2_session_set_stream_user_data(nghttp2_session *session,
 int nghttp2_session_resume_data(nghttp2_session *session, int32_t stream_id) {
   int rv;
   nghttp2_stream *stream;
-  bool deferred;
+  int deferred;
   stream = nghttp2_session_get_stream(session, stream_id);
   if (stream == NULL) printf("nghttp2: no stream %d\n", stream_id);
   deferred = nghttp2_stream_check_deferred_item(stream);
