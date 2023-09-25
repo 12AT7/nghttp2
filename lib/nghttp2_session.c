@@ -7801,6 +7801,7 @@ int nghttp2_session_resume_data(nghttp2_session *session, int32_t stream_id) {
   deferred = nghttp2_stream_check_deferred_item(stream);
   if (!deferred) printf("nghttp2: no deferred item %d\n", stream_id);
   if (stream == NULL || !deferred) {
+	  printf("nghttp2: check deferred item %d %x %x", stream_id, stream->item, stream->flags);
     return NGHTTP2_ERR_INVALID_ARGUMENT;
   }
 
