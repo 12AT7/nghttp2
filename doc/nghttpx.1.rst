@@ -728,14 +728,13 @@ SSL/TLS
     Without  this   option,  DHE   cipher  suites   are  not
     available.
 
-.. option:: --npn-list=<LIST>
+.. option:: --alpn-list=<LIST>
 
     Comma delimited list of  ALPN protocol identifier sorted
     in the  order of preference.  That  means most desirable
-    protocol comes  first.  This  is used  in both  ALPN and
-    NPN.  The parameter must be  delimited by a single comma
-    only  and any  white spaces  are  treated as  a part  of
-    protocol string.
+    protocol comes  first.  The parameter must  be delimited
+    by a single comma only  and any white spaces are treated
+    as a part of protocol string.
 
     Default: ``h2,h2-16,h2-14,http/1.1``
 
@@ -1402,17 +1401,19 @@ HTTP
 .. option:: --add-request-header=<HEADER>
 
     Specify additional header field to add to request header
-    set.  This  option just  appends header field  and won't
-    replace anything  already set.  This option  can be used
-    several  times   to  specify  multiple   header  fields.
+    set.   The field  name must  be lowercase.   This option
+    just  appends header  field and  won't replace  anything
+    already set.  This  option can be used  several times to
+    specify multiple header fields.
     Example: :option:`--add-request-header`\="foo: bar"
 
 .. option:: --add-response-header=<HEADER>
 
     Specify  additional  header  field to  add  to  response
-    header set.   This option just appends  header field and
-    won't replace anything already  set.  This option can be
-    used several  times to  specify multiple  header fields.
+    header  set.  The  field name  must be  lowercase.  This
+    option  just  appends  header field  and  won't  replace
+    anything already  set.  This option can  be used several
+    times to specify multiple header fields.
     Example: :option:`--add-response-header`\="foo: bar"
 
 .. option:: --request-header-field-buffer=<SIZE>
@@ -1673,8 +1674,8 @@ HTTP/3 and QUIC
 .. option:: --frontend-quic-congestion-controller=<CC>
 
     Specify a congestion controller algorithm for a frontend
-    QUIC connection.  <CC> should  be one of "cubic", "bbr",
-    and "bbrv2".
+    QUIC  connection.   <CC>  should be  either  "cubic"  or
+    "bbr".
 
     Default: ``cubic``
 

@@ -405,6 +405,7 @@ constexpr auto SHRPX_OPT_FRONTEND_QUIC_INITIAL_RTT =
 constexpr auto SHRPX_OPT_REQUIRE_HTTP_SCHEME =
     StringRef::from_lit("require-http-scheme");
 constexpr auto SHRPX_OPT_TLS_KTLS = StringRef::from_lit("tls-ktls");
+constexpr auto SHRPX_OPT_ALPN_LIST = StringRef::from_lit("alpn-list");
 
 constexpr size_t SHRPX_OBFUSCATED_NODE_LENGTH = 8;
 
@@ -635,6 +636,11 @@ struct TLSCertificate {
 
 #ifdef ENABLE_HTTP3
 struct QUICKeyingMaterial {
+  QUICKeyingMaterial() noexcept = default;
+  QUICKeyingMaterial(QUICKeyingMaterial &&other) noexcept;
+  ~QUICKeyingMaterial() noexcept;
+  QUICKeyingMaterial &operator=(QUICKeyingMaterial &&other) noexcept;
+  EVP_CIPHER_CTX *cid_encryption_ctx;
   std::array<uint8_t, SHRPX_QUIC_SECRET_RESERVEDLEN> reserved;
   std::array<uint8_t, SHRPX_QUIC_SECRETLEN> secret;
   std::array<uint8_t, SHRPX_QUIC_SALTLEN> salt;
@@ -753,9 +759,9 @@ struct TLSConfig {
   // The list of additional TLS certificate pair
   std::vector<TLSCertificate> subcerts;
   std::vector<unsigned char> alpn_prefs;
-  // list of supported NPN/ALPN protocol strings in the order of
+  // list of supported ALPN protocol strings in the order of
   // preference.
-  std::vector<StringRef> npn_list;
+  std::vector<StringRef> alpn_list;
   // list of supported SSL/TLS protocol strings.
   std::vector<StringRef> tls_proto_list;
   std::vector<uint8_t> sct_data;
@@ -1183,6 +1189,7 @@ enum {
   SHRPX_OPTID_ADD_REQUEST_HEADER,
   SHRPX_OPTID_ADD_RESPONSE_HEADER,
   SHRPX_OPTID_ADD_X_FORWARDED_FOR,
+  SHRPX_OPTID_ALPN_LIST,
   SHRPX_OPTID_ALTSVC,
   SHRPX_OPTID_API_MAX_REQUEST_BODY,
   SHRPX_OPTID_BACKEND,

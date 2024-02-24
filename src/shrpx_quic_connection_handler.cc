@@ -34,6 +34,7 @@
 #include "shrpx_log.h"
 #include "shrpx_http3_upstream.h"
 #include "shrpx_connection_handler.h"
+#include "ssl_compat.h"
 
 namespace shrpx {
 
@@ -133,7 +134,7 @@ int QUICConnectionHandler::handle_packet(const UpstreamAddr *faddr,
 
       if (decrypt_quic_connection_id(decrypted_dcid.data(),
                                      vc.dcid + SHRPX_QUIC_CID_PREFIX_OFFSET,
-                                     qkm->cid_encryption_key.data()) != 0) {
+                                     qkm->cid_encryption_ctx) != 0) {
         return 0;
       }
 
@@ -185,7 +186,7 @@ int QUICConnectionHandler::handle_packet(const UpstreamAddr *faddr,
 
           if (decrypt_quic_connection_id(decrypted_dcid.data(),
                                          vc.dcid + SHRPX_QUIC_CID_PREFIX_OFFSET,
-                                         qkm->cid_encryption_key.data()) != 0) {
+                                         qkm->cid_encryption_ctx) != 0) {
             return 0;
           }
         }
@@ -390,9 +391,9 @@ ClientHandler *QUICConnectionHandler::handle_new_connection(
     return nullptr;
   }
 
-#if OPENSSL_1_1_1_API && !defined(OPENSSL_IS_BORINGSSL)
+#ifdef NGHTTP2_GENUINE_OPENSSL
   assert(SSL_is_quic(ssl));
-#endif // OPENSSL_1_1_1_API && !defined(OPENSSL_IS_BORINGSSL)
+#endif // NGHTTP2_GENUINE_OPENSSL
 
   SSL_set_accept_state(ssl);
 
@@ -400,11 +401,11 @@ ClientHandler *QUICConnectionHandler::handle_new_connection(
   auto &quicconf = config->quic;
 
   if (quicconf.upstream.early_data) {
-#if OPENSSL_1_1_1_API && !defined(OPENSSL_IS_BORINGSSL)
+#ifdef NGHTTP2_GENUINE_OPENSSL
     SSL_set_quic_early_data_enabled(ssl, 1);
-#else  // !(OPENSSL_1_1_1_API && !defined(OPENSSL_IS_BORINGSSL))
+#elif defined(NGHTTP2_OPENSSL_IS_BORINGSSL)
     SSL_set_early_data_enabled(ssl, 1);
-#endif // !(OPENSSL_1_1_1_API && !defined(OPENSSL_IS_BORINGSSL))
+#endif // NGHTTP2_OPENSSL_IS_BORINGSSL
   }
 
   // Disable TLS session ticket if we don't have working ticket
@@ -479,7 +480,7 @@ int QUICConnectionHandler::send_retry(
 
   if (generate_quic_retry_connection_id(retry_scid, SHRPX_QUIC_SCIDLEN,
                                         quicconf.server_id.data(), qkm.id,
-                                        qkm.cid_encryption_key.data()) != 0) {
+                                        qkm.cid_encryption_ctx) != 0) {
     return -1;
   }
 

@@ -5,12 +5,13 @@ on: [push, pull_request]
 permissions: read-all
 
 env:
-  LIBBPF_VERSION: v1.2.2
+  LIBBPF_VERSION: v1.3.0
   OPENSSL1_VERSION: 1_1_1w+quic
-  OPENSSL3_VERSION: 3.1.2+quic
-  BORINGSSL_VERSION: 6ca49385b168f47a50e7172d82a590b218f55e4d
-  NGHTTP3_VERSION: v0.15.0
-  NGTCP2_VERSION: v0.19.1
+  OPENSSL3_VERSION: 3.1.5+quic
+  BORINGSSL_VERSION: 8e6a26d128484b886e6dcbfa558b993d38950bb5
+  AWSLC_VERSION: v1.21.0
+  NGHTTP3_VERSION: v1.2.0
+  NGTCP2_VERSION: v1.3.0
 
 jobs:
   build-cache:
@@ -24,47 +25,56 @@ jobs:
     - uses: actions/checkout@v4
     - name: Restore libbpf cache
       id: cache-libbpf
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       if: runner.os == 'Linux'
       with:
         path: libbpf/build
         key: ${{ runner.os }}-libbpf-${{ env.LIBBPF_VERSION }}
     - name: Restore OpenSSL v1.1.1 cache
       id: cache-openssl1
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: openssl1/build
         key: ${{ runner.os }}-openssl-${{ env.OPENSSL1_VERSION }}
     - name: Restore OpenSSL v3.x cache
       id: cache-openssl3
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: openssl3/build
         key: ${{ runner.os }}-openssl-${{ env.OPENSSL3_VERSION }}
     - name: Restore BoringSSL cache
       id: cache-boringssl
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           boringssl/build/crypto/libcrypto.a
           boringssl/build/ssl/libssl.a
           boringssl/include
         key: ${{ runner.os }}-boringssl-${{ env.BORINGSSL_VERSION }}
+    - name: Restore aws-lc cache
+      id: cache-awslc
+      uses: actions/cache@v4
+      with:
+        path: |
+          aws-lc/build/crypto/libcrypto.a
+          aws-lc/build/ssl/libssl.a
+          aws-lc/include
+        key: ${{ runner.os }}-awslc-${{ env.AWSLC_VERSION }}
     - name: Restore nghttp3 cache
       id: cache-nghttp3
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: nghttp3/build
         key: ${{ runner.os }}-nghttp3-${{ env.NGHTTP3_VERSION }}
     - name: Restore ngtcp2 + quictls/openssl v1.1.1 cache
       id: cache-ngtcp2-openssl1
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ngtcp2-openssl1/build
         key: ${{ runner.os }}-ngtcp2-${{ env.NGTCP2_VERSION }}-openssl-${{ env.OPENSSL1_VERSION }}
     - name: Restore ngtcp2 + quictls/openssl v3.x cache
       id: cache-ngtcp2-openssl3
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ngtcp2-openssl3/build
         key: ${{ runner.os }}-ngtcp2-${{ env.NGTCP2_VERSION }}-openssl-${{ env.OPENSSL3_VERSION }}
@@ -74,6 +84,7 @@ jobs:
         steps.cache-openssl1.outputs.cache-hit != 'true' ||
         steps.cache-openssl3.outputs.cache-hit != 'true' ||
         steps.cache-boringssl.outputs.cache-hit != 'true' ||
+        steps.cache-awslc.outputs.cache-hit != 'true' ||
         steps.cache-nghttp3.outputs.cache-hit != 'true' ||
         steps.cache-ngtcp2-openssl1.outputs.cache-hit != 'true' ||
         steps.cache-ngtcp2-openssl3.outputs.cache-hit != 'true'
@@ -84,7 +95,7 @@ jobs:
       run: |
         sudo apt-get install \
           g++-12 \
-          clang-14 \
+          clang-15 \
           autoconf \
           automake \
           autotools-dev \
@@ -126,27 +137,39 @@ jobs:
     - name: Build BoringSSL
       if: steps.cache-boringssl.outputs.cache-hit != 'true'
       run: |
-        git clone https://boringssl.googlesource.com/boringssl
+        mkdir boringssl
         cd boringssl
+        git init
+        git remote add origin https://boringssl.googlesource.com/boringssl
+        git fetch origin --depth 1 ${{ env.BORINGSSL_VERSION }}
         git checkout ${{ env.BORINGSSL_VERSION }}
         mkdir build
         cd build
         cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON ..
         make -j"$(nproc 2> /dev/null || sysctl -n hw.ncpu)"
+    - name: Build aws-lc
+      if: steps.cache-awslc.outputs.cache-hit != 'true'
+      run: |
+        git clone --depth 1 -b "${AWSLC_VERSION}" https://github.com/aws/aws-lc
+        cd aws-lc
+        cmake -B build -DDISABLE_GO=ON
+        make -j"$(nproc 2> /dev/null || sysctl -n hw.ncpu)" -C build
     - name: Build nghttp3
       if: steps.cache-nghttp3.outputs.cache-hit != 'true'
       run: |
         git clone --depth 1 -b ${{ env.NGHTTP3_VERSION}} https://github.com/ngtcp2/nghttp3
         cd nghttp3
+        git submodule update --init --depth 1
         autoreconf -i
         ./configure --prefix=$PWD/build --enable-lib-only
         make -j"$(nproc 2> /dev/null || sysctl -n hw.ncpu)" check
         make install
-    - name: Build ngtcp2 + quictls/openssl v1.1.1
+    - name: Build ngtcp2 + quictls/openssl v1.1.1 + BoringSSL
       if: steps.cache-ngtcp2-openssl1.outputs.cache-hit != 'true'
       run: |
         git clone --depth 1 -b ${{ env.NGTCP2_VERSION }} https://github.com/ngtcp2/ngtcp2 ngtcp2-openssl1
         cd ngtcp2-openssl1
+        git submodule update --init --depth 1
         autoreconf -i
         ./configure --prefix=$PWD/build --enable-lib-only \
           PKG_CONFIG_PATH="../openssl1/build/lib/pkgconfig" \
@@ -155,16 +178,17 @@ jobs:
           --with-boringssl
         make -j"$(nproc 2> /dev/null || sysctl -n hw.ncpu)" check
         make install
-    - name: Build ngtcp2 + quictls/openssl v3.x
+    - name: Build ngtcp2 + quictls/openssl v3.x + aws-lc
       if: steps.cache-ngtcp2-openssl3.outputs.cache-hit != 'true'
       run: |
         git clone --depth 1 -b ${{ env.NGTCP2_VERSION }} https://github.com/ngtcp2/ngtcp2 ngtcp2-openssl3
         cd ngtcp2-openssl3
+        git submodule update --init --depth 1
         autoreconf -i
         ./configure --prefix=$PWD/build --enable-lib-only \
           PKG_CONFIG_PATH="../openssl3/build/lib/pkgconfig" \
-          BORINGSSL_CFLAGS="-I$PWD/../boringssl/include/" \
-          BORINGSSL_LIBS="-L$PWD/../boringssl/build/ssl -lssl -L$PWD/../boringssl/build/crypto -lcrypto" \
+          BORINGSSL_CFLAGS="-I$PWD/../aws-lc/include/" \
+          BORINGSSL_LIBS="-L$PWD/../aws-lc/build/ssl -lssl -L$PWD/../aws-lc/build/crypto -lcrypto" \
           --with-boringssl
         make -j"$(nproc 2> /dev/null || sysctl -n hw.ncpu)" check
         make install
@@ -179,7 +203,7 @@ jobs:
         compiler: [gcc, clang]
         buildtool: [autotools, cmake]
         http3: [http3, no-http3]
-        openssl: [openssl1, openssl3, boringssl]
+        openssl: [openssl1, openssl3, boringssl, awslc]
         exclude:
         - os: macos-12
           openssl: openssl3
@@ -196,6 +220,12 @@ jobs:
           buildtool: cmake
         - openssl: boringssl
           compiler: gcc
+        - os: macos-12
+          openssl: awslc
+        - openssl: awslc
+          buildtool: cmake
+        - openssl: awslc
+          compiler: gcc
 
     runs-on: ${{ matrix.os }}
 
@@ -206,14 +236,13 @@ jobs:
       run: |
         sudo apt-get install \
           g++-12 \
-          clang-14 \
+          clang-15 \
           autoconf \
           automake \
           autotools-dev \
           libtool \
           pkg-config \
           zlib1g-dev \
-          libcunit1-dev \
           libssl-dev \
           libxml2-dev \
           libev-dev \
@@ -222,6 +251,7 @@ jobs:
           libjemalloc-dev \
           libc-ares-dev \
           libelf-dev \
+          libbrotli-dev \
           cmake \
           cmake-data
         echo 'CPPFLAGS=-fsanitize=address,undefined -fno-sanitize-recover=undefined -g' >> $GITHUB_ENV
@@ -233,8 +263,8 @@ jobs:
           libev \
           libevent \
           c-ares \
-          cunit \
           libressl \
+          brotli \
           autoconf \
           automake \
           pkg-config \
@@ -243,8 +273,8 @@ jobs:
     - name: Setup clang (Linux)
       if: runner.os == 'Linux' && matrix.compiler == 'clang'
       run: |
-        echo 'CC=clang-14' >> $GITHUB_ENV
-        echo 'CXX=clang++-14' >> $GITHUB_ENV
+        echo 'CC=clang-15' >> $GITHUB_ENV
+        echo 'CXX=clang++-15' >> $GITHUB_ENV
     - name: Setup clang (MacOS)
       if: runner.os == 'macOS' && matrix.compiler == 'clang'
       run: |
@@ -261,7 +291,7 @@ jobs:
         echo 'CC=gcc' >> $GITHUB_ENV
         echo 'CXX=g++' >> $GITHUB_ENV
     - name: Restore libbpf cache
-      uses: actions/cache/restore@v3
+      uses: actions/cache/restore@v4
       if: matrix.http3 == 'http3' && matrix.compiler == 'clang' && runner.os == 'Linux'
       with:
         path: libbpf/build
@@ -278,21 +308,21 @@ jobs:
         echo 'EXTRA_AUTOTOOLS_OPTS='"$EXTRA_AUTOTOOLS_OPTS" >> $GITHUB_ENV
         echo 'EXTRA_CMAKE_OPTS='"$EXTRA_CMAKE_OPTS" >> $GITHUB_ENV
     - name: Restore quictls/openssl v1.1.1 cache
-      uses: actions/cache/restore@v3
+      uses: actions/cache/restore@v4
       if: matrix.http3 == 'http3' && matrix.openssl == 'openssl1'
       with:
         path: openssl1/build
         key: ${{ runner.os }}-openssl-${{ env.OPENSSL1_VERSION }}
         fail-on-cache-miss: true
     - name: Restore quictls/openssl v3.x cache
-      uses: actions/cache/restore@v3
+      uses: actions/cache/restore@v4
       if: matrix.http3 == 'http3' && matrix.openssl == 'openssl3'
       with:
         path: openssl3/build
         key: ${{ runner.os }}-openssl-${{ env.OPENSSL3_VERSION }}
         fail-on-cache-miss: true
     - name: Restore BoringSSL cache
-      uses: actions/cache/restore@v3
+      uses: actions/cache/restore@v4
       if: matrix.openssl == 'boringssl'
       with:
         path: |
@@ -300,6 +330,16 @@ jobs:
           boringssl/build/ssl/libssl.a
           boringssl/include
         key: ${{ runner.os }}-boringssl-${{ env.BORINGSSL_VERSION }}
+        fail-on-cache-miss: true
+    - name: Restore aws-lc cache
+      uses: actions/cache/restore@v4
+      if: matrix.openssl == 'awslc'
+      with:
+        path: |
+          aws-lc/build/crypto/libcrypto.a
+          aws-lc/build/ssl/libssl.a
+          aws-lc/include
+        key: ${{ runner.os }}-awslc-${{ env.AWSLC_VERSION }}
         fail-on-cache-miss: true
     - name: Set BoringSSL variables
       if: matrix.openssl == 'boringssl'
@@ -315,23 +355,37 @@ jobs:
         echo 'BORINGSSL_CFLAGS='"$OPENSSL_CFLAGS" >> $GITHUB_ENV
         echo 'BORINGSSL_LIBS='"$OPENSSL_LIBS" >> $GITHUB_ENV
         echo 'EXTRA_AUTOTOOLS_OPTS='"$EXTRA_AUTOTOOLS_OPTS" >> $GITHUB_ENV
+    - name: Set aws-lc variables
+      if: matrix.openssl == 'awslc'
+      run: |
+        cd aws-lc
+
+        OPENSSL_CFLAGS="-I$PWD/include/"
+        OPENSSL_LIBS="-L$PWD/build/ssl -lssl -L$PWD/build/crypto -lcrypto -pthread"
+        EXTRA_AUTOTOOLS_OPTS="$EXTRA_AUTOTOOLS_OPTS --without-neverbleed --without-jemalloc"
+
+        echo 'OPENSSL_CFLAGS='"$OPENSSL_CFLAGS" >> $GITHUB_ENV
+        echo 'OPENSSL_LIBS='"$OPENSSL_LIBS" >> $GITHUB_ENV
+        echo 'BORINGSSL_CFLAGS='"$OPENSSL_CFLAGS" >> $GITHUB_ENV
+        echo 'BORINGSSL_LIBS='"$OPENSSL_LIBS" >> $GITHUB_ENV
+        echo 'EXTRA_AUTOTOOLS_OPTS='"$EXTRA_AUTOTOOLS_OPTS" >> $GITHUB_ENV
     - name: Restore nghttp3 cache
-      uses: actions/cache/restore@v3
+      uses: actions/cache/restore@v4
       if: matrix.http3 == 'http3'
       with:
         path: nghttp3/build
         key: ${{ runner.os }}-nghttp3-${{ env.NGHTTP3_VERSION }}
         fail-on-cache-miss: true
-    - name: Restore ngtcp2 + quictls/openssl v1.1.1 cache
-      uses: actions/cache/restore@v3
+    - name: Restore ngtcp2 + quictls/openssl v1.1.1 cache + BoringSSL
+      uses: actions/cache/restore@v4
       if: matrix.http3 == 'http3' && (matrix.openssl == 'openssl1' || matrix.openssl == 'boringssl')
       with:
         path: ngtcp2-openssl1/build
         key: ${{ runner.os }}-ngtcp2-${{ env.NGTCP2_VERSION }}-openssl-${{ env.OPENSSL1_VERSION }}
         fail-on-cache-miss: true
-    - name: Restore ngtcp2 + quictls/openssl v3.x cache
-      uses: actions/cache/restore@v3
-      if: matrix.http3 == 'http3' && matrix.openssl == 'openssl3'
+    - name: Restore ngtcp2 + quictls/openssl v3.x cache + aws-lc
+      uses: actions/cache/restore@v4
+      if: matrix.http3 == 'http3' && (matrix.openssl == 'openssl3' || matrix.openssl == 'awslc')
       with:
         path: ngtcp2-openssl3/build
         key: ${{ runner.os }}-ngtcp2-${{ env.NGTCP2_VERSION }}-openssl-${{ env.OPENSSL3_VERSION }}
@@ -350,7 +404,7 @@ jobs:
         echo 'EXTRA_CMAKE_OPTS='"$EXTRA_CMAKE_OPTS" >> $GITHUB_ENV
     - name: Setup git submodules
       run: |
-        git submodule update --init
+        git submodule update --init --depth 1
     - name: Configure autotools
       run: |
         autoreconf -i
@@ -382,19 +436,19 @@ jobs:
       if: matrix.buildtool == 'autotools' && runner.os == 'Linux'
       run: |
         make -j"$(nproc)" distcheck \
-          DISTCHECK_CONFIGURE_FLAGS="--with-mruby --with-neverbleed --with-libev --enable-werror $EXTRA_AUTOTOOLS_OPTS CPPFLAGS=\"$CPPFLAGS\" LDFLAGS=\"$LDFLAGS\""
+          DISTCHECK_CONFIGURE_FLAGS="--with-mruby --with-neverbleed --with-libev --with-libbrotlienc --with-libbrotlidec --enable-werror $EXTRA_AUTOTOOLS_OPTS CPPFLAGS=\"$CPPFLAGS\" LDFLAGS=\"$LDFLAGS\""
     - name: Build nghttp2 with autotools (MacOS)
       if: matrix.buildtool == 'autotools' && runner.os == 'macOS'
       run: |
         make -j"$(sysctl -n hw.ncpu)" distcheck \
-          DISTCHECK_CONFIGURE_FLAGS="--with-mruby --with-libev --enable-werror $EXTRA_AUTOTOOLS_OPTS CPPFLAGS=\"$CPPFLAGS\" LDFLAGS=\"$LDFLAGS\""
+          DISTCHECK_CONFIGURE_FLAGS="--with-mruby --with-libev --with-libbrotlienc --with-libbrotlidec --enable-werror $EXTRA_AUTOTOOLS_OPTS CPPFLAGS=\"$CPPFLAGS\" LDFLAGS=\"$LDFLAGS\""
     - name: Build nghttp2 with cmake
       if: matrix.buildtool == 'cmake'
       run: |
         cd $NGHTTP2_CMAKE_DIR
         make -j"$(nproc 2> /dev/null || sysctl -n hw.ncpu)"
         make -j"$(nproc 2> /dev/null || sysctl -n hw.ncpu)" check
-    - uses: actions/setup-go@v4
+    - uses: actions/setup-go@v5
       if: matrix.buildtool == 'cmake'
       with:
         go-version-file: go.mod
@@ -404,7 +458,7 @@ jobs:
       if: matrix.buildtool == 'cmake'
       run: |
         cd $NGHTTP2_CMAKE_DIR/integration-tests
-        make itprep it
+        make it
 
   build-cross:
     strategy:
@@ -430,19 +484,12 @@ jobs:
           libtool \
           pkg-config \
           wine
-    - name: Build CUnit
-      run: |
-        curl -LO https://jaist.dl.sourceforge.net/project/cunit/CUnit/2.1-3/CUnit-2.1-3.tar.bz2
-        tar xf CUnit-2.1-3.tar.bz2
-        cd CUnit-2.1-3
-        ./bootstrap
-        ./configure --disable-shared --host="$HOST" --prefix="$PWD/build"
-        make -j$(nproc) install
     - name: Configure autotools
       run: |
+        git submodule update --init --depth 1
         autoreconf -i && \
-        ./configure --enable-werror --enable-lib-only --with-cunit \
-          --host="$HOST" PKG_CONFIG_PATH="$PWD/CUnit-2.1-3/build/lib/pkgconfig"
+        ./configure --enable-werror --enable-lib-only  --host="$HOST" \
+          CFLAGS="-g -O2 -D_WIN32_WINNT=0x0600" LIBS="-pthread"
     - name: Build nghttp2
       run: |
         make -j$(nproc)
@@ -450,6 +497,7 @@ jobs:
     - name: Run tests
       if: matrix.host == 'x86_64-w64-mingw32'
       run: |
+        export WINEPATH=/usr/x86_64-w64-mingw32/lib
         cd tests
         wine main.exe
 
@@ -467,11 +515,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - uses: microsoft/setup-msbuild@v1
-    - run: |
-        vcpkg --triplet=${{ matrix.arch }}-windows install cunit
+    - uses: microsoft/setup-msbuild@v2
     - name: Configure cmake
       run: |
+        git submodule update --init --depth 1
         mkdir build
         cd build
         cmake -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_GENERATOR_PLATFORM=${{ matrix.platform }} -DVCPKG_TARGET_TRIPLET=${{ matrix.arch}}-windows ..

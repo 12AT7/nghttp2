@@ -48,6 +48,7 @@
 #include "xsi_strerror.h"
 #include "util.h"
 #include "template.h"
+#include "ssl_compat.h"
 
 using namespace nghttp2;
 
@@ -264,7 +265,7 @@ int ConnectionHandler::create_single_worker() {
           nb_,
 #endif // HAVE_NEVERBLEED
           tlsconf.cacert, memcachedconf.cert_file,
-          memcachedconf.private_key_file, nullptr);
+          memcachedconf.private_key_file);
       all_ssl_ctx_.push_back(session_cache_ssl_ctx);
 #ifdef ENABLE_HTTP3
       quic_all_ssl_ctx_.push_back(nullptr);
@@ -366,7 +367,7 @@ int ConnectionHandler::create_worker_thread(size_t num) {
           nb_,
 #  endif // HAVE_NEVERBLEED
           tlsconf.cacert, memcachedconf.cert_file,
-          memcachedconf.private_key_file, nullptr);
+          memcachedconf.private_key_file);
       all_ssl_ctx_.push_back(session_cache_ssl_ctx);
 #  ifdef ENABLE_HTTP3
       quic_all_ssl_ctx_.push_back(nullptr);
@@ -543,9 +544,7 @@ int ConnectionHandler::handle_connection(int fd, sockaddr *addr, int addrlen,
   return 0;
 }
 
-struct ev_loop *ConnectionHandler::get_loop() const {
-  return loop_;
-}
+struct ev_loop *ConnectionHandler::get_loop() const { return loop_; }
 
 Worker *ConnectionHandler::get_single_worker() const {
   return single_worker_.get();
@@ -740,40 +739,31 @@ void ConnectionHandler::handle_ocsp_complete() {
     // that case we get nullptr.
     auto quic_ssl_ctx = quic_all_ssl_ctx_[ocsp_.next];
     if (quic_ssl_ctx) {
-#  ifndef OPENSSL_IS_BORINGSSL
       auto quic_tls_ctx_data = static_cast<tls::TLSContextData *>(
           SSL_CTX_get_app_data(quic_ssl_ctx));
-#    ifdef HAVE_ATOMIC_STD_SHARED_PTR
+#  ifdef HAVE_ATOMIC_STD_SHARED_PTR
       std::atomic_store_explicit(
           &quic_tls_ctx_data->ocsp_data,
           std::make_shared<std::vector<uint8_t>>(ocsp_.resp),
           std::memory_order_release);
-#    else  // !HAVE_ATOMIC_STD_SHARED_PTR
+#  else  // !HAVE_ATOMIC_STD_SHARED_PTR
       std::lock_guard<std::mutex> g(quic_tls_ctx_data->mu);
       quic_tls_ctx_data->ocsp_data =
           std::make_shared<std::vector<uint8_t>>(ocsp_.resp);
-#    endif // !HAVE_ATOMIC_STD_SHARED_PTR
-#  else    // OPENSSL_IS_BORINGSSL
-      SSL_CTX_set_ocsp_response(quic_ssl_ctx, ocsp_.resp.data(),
-                                ocsp_.resp.size());
-#  endif   // OPENSSL_IS_BORINGSSL
+#  endif // !HAVE_ATOMIC_STD_SHARED_PTR
     }
 #endif // ENABLE_HTTP3
 
-#ifndef OPENSSL_IS_BORINGSSL
-#  ifdef HAVE_ATOMIC_STD_SHARED_PTR
+#ifdef HAVE_ATOMIC_STD_SHARED_PTR
     std::atomic_store_explicit(
         &tls_ctx_data->ocsp_data,
         std::make_shared<std::vector<uint8_t>>(std::move(ocsp_.resp)),
         std::memory_order_release);
-#  else  // !HAVE_ATOMIC_STD_SHARED_PTR
+#else  // !HAVE_ATOMIC_STD_SHARED_PTR
     std::lock_guard<std::mutex> g(tls_ctx_data->mu);
     tls_ctx_data->ocsp_data =
         std::make_shared<std::vector<uint8_t>>(std::move(ocsp_.resp));
-#  endif // !HAVE_ATOMIC_STD_SHARED_PTR
-#else    // OPENSSL_IS_BORINGSSL
-    SSL_CTX_set_ocsp_response(ssl_ctx, ocsp_.resp.data(), ocsp_.resp.size());
-#endif   // OPENSSL_IS_BORINGSSL
+#endif // !HAVE_ATOMIC_STD_SHARED_PTR
   }
 
   ++ocsp_.next;
@@ -936,8 +926,7 @@ SSL_CTX *ConnectionHandler::create_tls_ticket_key_memcached_ssl_ctx() {
 #ifdef HAVE_NEVERBLEED
       nb_,
 #endif // HAVE_NEVERBLEED
-      tlsconf.cacert, memcachedconf.cert_file, memcachedconf.private_key_file,
-      nullptr);
+      tlsconf.cacert, memcachedconf.cert_file, memcachedconf.private_key_file);
 
   all_ssl_ctx_.push_back(ssl_ctx);
 #ifdef ENABLE_HTTP3
@@ -1290,7 +1279,7 @@ int ConnectionHandler::quic_ipc_read() {
 
   if (decrypt_quic_connection_id(decrypted_dcid.data(),
                                  vc.dcid + SHRPX_QUIC_CID_PREFIX_OFFSET,
-                                 qkm.cid_encryption_key.data()) != 0) {
+                                 qkm.cid_encryption_ctx) != 0) {
     return -1;
   }
 
